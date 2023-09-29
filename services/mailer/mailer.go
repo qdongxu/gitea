@@ -28,6 +28,7 @@ import (
 
 	ntlmssp "github.com/Azure/go-ntlmssp"
 	"github.com/jaytaylor/html2text"
+	"golang.org/x/net/proxy"
 	"gopkg.in/gomail.v2"
 )
 
@@ -42,6 +43,8 @@ type Message struct {
 	Date            time.Time
 	Body            string
 	Headers         map[string][]string
+
+	Mailer *setting.Mailer
 }
 
 // ToMessage converts a Message to gomail.Message
@@ -56,8 +59,8 @@ func (m *Message) ToMessage() *gomail.Message {
 		msg.SetHeader(header, m.Headers[header]...)
 	}
 
-	if len(setting.MailService.SubjectPrefix) > 0 {
-		msg.SetHeader("Subject", setting.MailService.SubjectPrefix+" "+m.Subject)
+	if len(m.Mailer.SubjectPrefix) > 0 {
+		msg.SetHeader("Subject", m.Mailer.SubjectPrefix+" "+m.Subject)
 	} else {
 		msg.SetHeader("Subject", m.Subject)
 	}
@@ -65,7 +68,7 @@ func (m *Message) ToMessage() *gomail.Message {
 	msg.SetHeader("X-Auto-Response-Suppress", "All")
 
 	plainBody, err := html2text.FromString(m.Body)
-	if err != nil || setting.MailService.SendAsPlainText {
+	if err != nil || m.Mailer.SendAsPlainText {
 		if strings.Contains(base.TruncateString(m.Body, 100), "<html>") {
 			log.Warn("Mail contains HTML but configured to send as plain text.")
 		}
@@ -98,7 +101,7 @@ func (m *Message) generateAutoMessageID() string {
 }
 
 // NewMessageFrom creates new mail message object with custom From header.
-func NewMessageFrom(to, fromDisplayName, fromAddress, subject, body string) *Message {
+func NewMessageFrom(to, fromDisplayName, fromAddress, subject, body string, mailer *setting.Mailer) *Message {
 	log.Trace("NewMessageFrom (body):\n%s", body)
 
 	return &Message{
@@ -109,12 +112,13 @@ func NewMessageFrom(to, fromDisplayName, fromAddress, subject, body string) *Mes
 		Date:            time.Now(),
 		Body:            body,
 		Headers:         map[string][]string{},
+		Mailer:          mailer,
 	}
 }
 
 // NewMessage creates new mail message object with default From header.
-func NewMessage(to, subject, body string) *Message {
-	return NewMessageFrom(to, setting.MailService.FromName, setting.MailService.FromEmail, subject, body)
+func NewMessage(to, subject, body string, mailer *setting.Mailer) *Message {
+	return NewMessageFrom(to, mailer.FromName, mailer.FromEmail, subject, body, mailer)
 }
 
 type loginAuth struct {
@@ -176,11 +180,13 @@ func (a *ntlmAuth) Next(fromServer []byte, more bool) ([]byte, error) {
 }
 
 // Sender SMTP mail sender
-type smtpSender struct{}
+type smtpSender struct {
+	Mailer *setting.Mailer
+}
 
 // Send send email
 func (s *smtpSender) Send(from string, to []string, msg io.WriterTo) error {
-	opts := setting.MailService
+	opts := s.Mailer
 
 	var network string
 	var address string
@@ -192,7 +198,7 @@ func (s *smtpSender) Send(from string, to []string, msg io.WriterTo) error {
 		address = net.JoinHostPort(opts.SMTPAddr, opts.SMTPPort)
 	}
 
-	conn, err := net.Dial(network, address)
+	conn, err := proxy.Dial(context.Background(), network, address)
 	if err != nil {
 		return fmt.Errorf("failed to establish network connection to SMTP server: %w", err)
 	}
@@ -307,7 +313,9 @@ func (s *smtpSender) Send(from string, to []string, msg io.WriterTo) error {
 }
 
 // Sender sendmail mail sender
-type sendmailSender struct{}
+type sendmailSender struct {
+	Mailer *setting.Mailer
+}
 
 // Send send email
 func (s *sendmailSender) Send(from string, to []string, msg io.WriterTo) error {
@@ -316,21 +324,22 @@ func (s *sendmailSender) Send(from string, to []string, msg io.WriterTo) error {
 	var waitError error
 
 	envelopeFrom := from
-	if setting.MailService.OverrideEnvelopeFrom {
-		envelopeFrom = setting.MailService.EnvelopeFrom
+	MailService := s.Mailer
+	if MailService.OverrideEnvelopeFrom {
+		envelopeFrom = MailService.EnvelopeFrom
 	}
 
 	args := []string{"-f", envelopeFrom, "-i"}
-	args = append(args, setting.MailService.SendmailArgs...)
+	args = append(args, MailService.SendmailArgs...)
 	args = append(args, to...)
-	log.Trace("Sending with: %s %v", setting.MailService.SendmailPath, args)
+	log.Trace("Sending with: %s %v", MailService.SendmailPath, args)
 
-	desc := fmt.Sprintf("SendMail: %s %v", setting.MailService.SendmailPath, args)
+	desc := fmt.Sprintf("SendMail: %s %v", MailService.SendmailPath, args)
 
-	ctx, _, finished := process.GetManager().AddContextTimeout(graceful.GetManager().HammerContext(), setting.MailService.SendmailTimeout, desc)
+	ctx, _, finished := process.GetManager().AddContextTimeout(graceful.GetManager().HammerContext(), MailService.SendmailTimeout, desc)
 	defer finished()
 
-	cmd := exec.CommandContext(ctx, setting.MailService.SendmailPath, args...)
+	cmd := exec.CommandContext(ctx, MailService.SendmailPath, args...)
 	pipe, err := cmd.StdinPipe()
 	if err != nil {
 		return err
@@ -342,7 +351,7 @@ func (s *sendmailSender) Send(from string, to []string, msg io.WriterTo) error {
 		return err
 	}
 
-	if setting.MailService.SendmailConvertCRLF {
+	if MailService.SendmailConvertCRLF {
 		buf := &strings.Builder{}
 		_, err = msg.WriteTo(buf)
 		if err == nil {
@@ -366,7 +375,9 @@ func (s *sendmailSender) Send(from string, to []string, msg io.WriterTo) error {
 }
 
 // Sender sendmail mail sender
-type dummySender struct{}
+type dummySender struct {
+	Mailer *setting.Mailer
+}
 
 // Send send email
 func (s *dummySender) Send(from string, to []string, msg io.WriterTo) error {
@@ -392,19 +403,19 @@ func NewContext(ctx context.Context) {
 		return
 	}
 
-	switch setting.MailService.Protocol {
-	case "sendmail":
-		Sender = &sendmailSender{}
-	case "dummy":
-		Sender = &dummySender{}
-	default:
-		Sender = &smtpSender{}
-	}
-
 	subjectTemplates, bodyTemplates = templates.Mailer(ctx)
 
 	mailQueue = queue.CreateSimpleQueue(graceful.GetManager().ShutdownContext(), "mail", func(items ...*Message) []*Message {
 		for _, msg := range items {
+			switch msg.Mailer.Protocol {
+			case "sendmail":
+				Sender = &sendmailSender{Mailer: msg.Mailer}
+			case "dummy":
+				Sender = &dummySender{Mailer: msg.Mailer}
+			default:
+				Sender = &smtpSender{Mailer: msg.Mailer}
+			}
+
 			gomailMsg := msg.ToMessage()
 			log.Trace("New e-mail sending request %s: %s", gomailMsg.GetHeader("To"), msg.Info)
 			if err := gomail.Send(Sender, gomailMsg); err != nil {

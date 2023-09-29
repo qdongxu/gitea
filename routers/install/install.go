@@ -136,13 +136,14 @@ func Install(ctx *context.Context) {
 	form.AppURL = setting.AppURL
 	form.LogRootPath = setting.Log.RootPath
 
+	MailService := setting.MailService[0]
 	// E-mail service settings
 	if setting.MailService != nil {
-		form.SMTPAddr = setting.MailService.SMTPAddr
-		form.SMTPPort = setting.MailService.SMTPPort
-		form.SMTPFrom = setting.MailService.From
-		form.SMTPUser = setting.MailService.User
-		form.SMTPPasswd = setting.MailService.Passwd
+		form.SMTPAddr = MailService.SMTPAddr
+		form.SMTPPort = MailService.SMTPPort
+		form.SMTPFrom = MailService.From
+		form.SMTPUser = MailService.User
+		form.SMTPPasswd = MailService.Passwd
 	}
 	form.RegisterConfirm = setting.Service.RegisterEmailConfirm
 	form.MailNotify = setting.Service.EnableNotifyMail

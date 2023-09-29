@@ -5,15 +5,26 @@ package setting
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/mail"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"code.gitea.io/gitea/modules/log"
 
 	shellquote "github.com/kballard/go-shellquote"
+	"gopkg.in/ini.v1"
 )
+
+var currentMailIdx int64 = 0
+
+func Next() *Mailer {
+	i := atomic.AddInt64(&currentMailIdx, 1)
+	i = i % int64(len(MailService))
+	return MailService[i]
+}
 
 // Mailer represents mail service.
 type Mailer struct {
@@ -48,7 +59,7 @@ type Mailer struct {
 }
 
 // MailService the global mailer
-var MailService *Mailer
+var MailService []*Mailer
 
 func loadMailsFrom(rootCfg ConfigProvider) {
 	loadMailerFrom(rootCfg)
@@ -58,23 +69,41 @@ func loadMailsFrom(rootCfg ConfigProvider) {
 }
 
 func loadMailerFrom(rootCfg ConfigProvider) {
+	MailService = make([]*Mailer, 0)
+
 	sec := rootCfg.Section("mailer")
 	// Check mailer setting.
+	configMaier(rootCfg, sec)
+
+	for i := 0; i < 100; i++ {
+		sec := rootCfg.Section(fmt.Sprintf("mailer_%d", i))
+		// Check mailer setting.
+		if sec.Name() == ini.DefaultSection {
+			continue
+		}
+
+		configMaier(rootCfg, sec)
+	}
+
+	log.Info("Mail Service Enabled")
+}
+
+func configMaier(rootCfg ConfigProvider, sec ConfigSection) bool {
 	if !sec.Key("ENABLED").MustBool() {
-		return
+		return true
 	}
 
 	// Handle Deprecations and map on to new configuration
 	// DEPRECATED should not be removed because users maybe upgrade from lower version to the latest version
 	// if these are removed, the warning will not be shown
-	deprecatedSetting(rootCfg, "mailer", "MAILER_TYPE", "mailer", "PROTOCOL", "v1.19.0")
+	deprecatedSetting(rootCfg, sec.Name(), "MAILER_TYPE", sec.Name(), "PROTOCOL", "v1.19.0")
 	if sec.HasKey("MAILER_TYPE") && !sec.HasKey("PROTOCOL") {
 		if sec.Key("MAILER_TYPE").String() == "sendmail" {
 			sec.Key("PROTOCOL").MustString("sendmail")
 		}
 	}
 
-	deprecatedSetting(rootCfg, "mailer", "HOST", "mailer", "SMTP_ADDR", "v1.19.0")
+	deprecatedSetting(rootCfg, sec.Name(), "HOST", sec.Name(), "SMTP_ADDR", "v1.19.0")
 	if sec.HasKey("HOST") && !sec.HasKey("SMTP_ADDR") {
 		givenHost := sec.Key("HOST").String()
 		addr, port, err := net.SplitHostPort(givenHost)
@@ -90,7 +119,7 @@ func loadMailerFrom(rootCfg ConfigProvider) {
 		sec.Key("SMTP_PORT").MustString(port)
 	}
 
-	deprecatedSetting(rootCfg, "mailer", "IS_TLS_ENABLED", "mailer", "PROTOCOL", "v1.19.0")
+	deprecatedSetting(rootCfg, sec.Name(), "IS_TLS_ENABLED", sec.Name(), "PROTOCOL", "v1.19.0")
 	if sec.HasKey("IS_TLS_ENABLED") && !sec.HasKey("PROTOCOL") {
 		if sec.Key("IS_TLS_ENABLED").MustBool() {
 			sec.Key("PROTOCOL").MustString("smtps")
@@ -99,32 +128,32 @@ func loadMailerFrom(rootCfg ConfigProvider) {
 		}
 	}
 
-	deprecatedSetting(rootCfg, "mailer", "DISABLE_HELO", "mailer", "ENABLE_HELO", "v1.19.0")
+	deprecatedSetting(rootCfg, sec.Name(), "DISABLE_HELO", sec.Name(), "ENABLE_HELO", "v1.19.0")
 	if sec.HasKey("DISABLE_HELO") && !sec.HasKey("ENABLE_HELO") {
 		sec.Key("ENABLE_HELO").MustBool(!sec.Key("DISABLE_HELO").MustBool())
 	}
 
-	deprecatedSetting(rootCfg, "mailer", "SKIP_VERIFY", "mailer", "FORCE_TRUST_SERVER_CERT", "v1.19.0")
+	deprecatedSetting(rootCfg, sec.Name(), "SKIP_VERIFY", sec.Name(), "FORCE_TRUST_SERVER_CERT", "v1.19.0")
 	if sec.HasKey("SKIP_VERIFY") && !sec.HasKey("FORCE_TRUST_SERVER_CERT") {
 		sec.Key("FORCE_TRUST_SERVER_CERT").MustBool(sec.Key("SKIP_VERIFY").MustBool())
 	}
 
-	deprecatedSetting(rootCfg, "mailer", "USE_CERTIFICATE", "mailer", "USE_CLIENT_CERT", "v1.19.0")
+	deprecatedSetting(rootCfg, sec.Name(), "USE_CERTIFICATE", sec.Name(), "USE_CLIENT_CERT", "v1.19.0")
 	if sec.HasKey("USE_CERTIFICATE") && !sec.HasKey("USE_CLIENT_CERT") {
 		sec.Key("USE_CLIENT_CERT").MustBool(sec.Key("USE_CERTIFICATE").MustBool())
 	}
 
-	deprecatedSetting(rootCfg, "mailer", "CERT_FILE", "mailer", "CLIENT_CERT_FILE", "v1.19.0")
+	deprecatedSetting(rootCfg, sec.Name(), "CERT_FILE", sec.Name(), "CLIENT_CERT_FILE", "v1.19.0")
 	if sec.HasKey("CERT_FILE") && !sec.HasKey("CLIENT_CERT_FILE") {
 		sec.Key("CERT_FILE").MustString(sec.Key("CERT_FILE").String())
 	}
 
-	deprecatedSetting(rootCfg, "mailer", "KEY_FILE", "mailer", "CLIENT_KEY_FILE", "v1.19.0")
+	deprecatedSetting(rootCfg, sec.Name(), "KEY_FILE", sec.Name(), "CLIENT_KEY_FILE", "v1.19.0")
 	if sec.HasKey("KEY_FILE") && !sec.HasKey("CLIENT_KEY_FILE") {
 		sec.Key("KEY_FILE").MustString(sec.Key("KEY_FILE").String())
 	}
 
-	deprecatedSetting(rootCfg, "mailer", "ENABLE_HTML_ALTERNATIVE", "mailer", "SEND_AS_PLAIN_TEXT", "v1.19.0")
+	deprecatedSetting(rootCfg, sec.Name(), "ENABLE_HTML_ALTERNATIVE", sec.Name(), "SEND_AS_PLAIN_TEXT", "v1.19.0")
 	if sec.HasKey("ENABLE_HTML_ALTERNATIVE") && !sec.HasKey("SEND_AS_PLAIN_TEXT") {
 		sec.Key("SEND_AS_PLAIN_TEXT").MustBool(!sec.Key("ENABLE_HTML_ALTERNATIVE").MustBool(false))
 	}
@@ -146,40 +175,41 @@ func loadMailerFrom(rootCfg ConfigProvider) {
 	sec.Key("FROM").MustString(sec.Key("USER").String())
 
 	// Now map the values on to the MailService
-	MailService = &Mailer{}
-	if err := sec.MapTo(MailService); err != nil {
+	m := &Mailer{}
+	MailService = append(MailService, m)
+	if err := sec.MapTo(m); err != nil {
 		log.Fatal("Unable to map [mailer] section on to MailService. Error: %v", err)
 	}
 
 	// Infer SMTPPort if not set
-	if MailService.SMTPPort == "" {
-		switch MailService.Protocol {
+	if m.SMTPPort == "" {
+		switch m.Protocol {
 		case "smtp":
-			MailService.SMTPPort = "25"
+			m.SMTPPort = "25"
 		case "smtps":
-			MailService.SMTPPort = "465"
+			m.SMTPPort = "465"
 		case "smtp+starttls":
-			MailService.SMTPPort = "587"
+			m.SMTPPort = "587"
 		}
 	}
 
 	// Infer Protocol
-	if MailService.Protocol == "" {
-		if strings.ContainsAny(MailService.SMTPAddr, "/\\") {
-			MailService.Protocol = "smtp+unix"
+	if m.Protocol == "" {
+		if strings.ContainsAny(m.SMTPAddr, "/\\") {
+			m.Protocol = "smtp+unix"
 		} else {
-			switch MailService.SMTPPort {
+			switch m.SMTPPort {
 			case "25":
-				MailService.Protocol = "smtp"
+				m.Protocol = "smtp"
 			case "465":
-				MailService.Protocol = "smtps"
+				m.Protocol = "smtps"
 			case "587":
-				MailService.Protocol = "smtp+starttls"
+				m.Protocol = "smtp+starttls"
 			default:
-				log.Error("unable to infer unspecified mailer.PROTOCOL from mailer.SMTP_PORT = %q, assume using smtps", MailService.SMTPPort)
-				MailService.Protocol = "smtps"
-				if MailService.SMTPPort == "" {
-					MailService.SMTPPort = "465"
+				log.Error("unable to infer unspecified mailer.PROTOCOL from mailer.SMTP_PORT = %q, assume using smtps", m.SMTPPort)
+				m.Protocol = "smtps"
+				if m.SMTPPort == "" {
+					m.SMTPPort = "465"
 				}
 			}
 		}
@@ -188,16 +218,16 @@ func loadMailerFrom(rootCfg ConfigProvider) {
 	// we want to warn if users use SMTP on a non-local IP;
 	// we might as well take the opportunity to check that it has an IP at all
 	// This check is not needed for sendmail
-	switch MailService.Protocol {
+	switch m.Protocol {
 	case "sendmail":
 		var err error
-		MailService.SendmailArgs, err = shellquote.Split(sec.Key("SENDMAIL_ARGS").String())
+		m.SendmailArgs, err = shellquote.Split(sec.Key("SENDMAIL_ARGS").String())
 		if err != nil {
 			log.Error("Failed to parse Sendmail args: '%s' with error %v", sec.Key("SENDMAIL_ARGS").String(), err)
 		}
 	case "smtp", "smtps", "smtp+starttls", "smtp+unix":
-		ips := tryResolveAddr(MailService.SMTPAddr)
-		if MailService.Protocol == "smtp" {
+		ips := tryResolveAddr(m.SMTPAddr)
+		if m.Protocol == "smtp" {
 			for _, ip := range ips {
 				if !ip.IP.IsLoopback() {
 					log.Warn("connecting over insecure SMTP protocol to non-local address is not recommended")
@@ -208,33 +238,32 @@ func loadMailerFrom(rootCfg ConfigProvider) {
 	case "dummy": // just mention and do nothing
 	}
 
-	if MailService.From != "" {
-		parsed, err := mail.ParseAddress(MailService.From)
+	if m.From != "" {
+		parsed, err := mail.ParseAddress(m.From)
 		if err != nil {
-			log.Fatal("Invalid mailer.FROM (%s): %v", MailService.From, err)
+			log.Fatal("Invalid mailer.FROM (%s): %v", m.From, err)
 		}
-		MailService.FromName = parsed.Name
-		MailService.FromEmail = parsed.Address
+		m.FromName = parsed.Name
+		m.FromEmail = parsed.Address
 	} else {
 		log.Error("no mailer.FROM provided, email system may not work.")
 	}
 
-	switch MailService.EnvelopeFrom {
+	switch m.EnvelopeFrom {
 	case "":
-		MailService.OverrideEnvelopeFrom = false
+		m.OverrideEnvelopeFrom = false
 	case "<>":
-		MailService.EnvelopeFrom = ""
-		MailService.OverrideEnvelopeFrom = true
+		m.EnvelopeFrom = ""
+		m.OverrideEnvelopeFrom = true
 	default:
-		parsed, err := mail.ParseAddress(MailService.EnvelopeFrom)
+		parsed, err := mail.ParseAddress(m.EnvelopeFrom)
 		if err != nil {
-			log.Fatal("Invalid mailer.ENVELOPE_FROM (%s): %v", MailService.EnvelopeFrom, err)
+			log.Fatal("Invalid mailer.ENVELOPE_FROM (%s): %v", m.EnvelopeFrom, err)
 		}
-		MailService.OverrideEnvelopeFrom = true
-		MailService.EnvelopeFrom = parsed.Address
+		m.OverrideEnvelopeFrom = true
+		m.EnvelopeFrom = parsed.Address
 	}
-
-	log.Info("Mail Service Enabled")
+	return false
 }
 
 func loadRegisterMailFrom(rootCfg ConfigProvider) {

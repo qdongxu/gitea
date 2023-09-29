@@ -53,7 +53,7 @@ func prepareMailerTest(t *testing.T) (doer *user_model.User, repo *repo_model.Re
 		From: "test@gitea.com",
 	}
 
-	setting.MailService = &mailService
+	setting.MailService = []*setting.Mailer{&mailService}
 	setting.Domain = "localhost"
 
 	doer = unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})

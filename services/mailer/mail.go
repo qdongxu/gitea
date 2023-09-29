@@ -57,11 +57,13 @@ var (
 
 // SendTestMail sends a test mail
 func SendTestMail(email string) error {
-	if setting.MailService == nil {
+	if len(setting.MailService) == 0 {
 		// No mail service configured
 		return nil
 	}
-	return gomail.Send(Sender, NewMessage(email, "Gitea Test Email!", "Gitea Test Email!").ToMessage())
+
+	MailService := setting.Next()
+	return gomail.Send(Sender, NewMessage(email, "Gitea Test Email!", "Gitea Test Email!", MailService).ToMessage())
 }
 
 // sendUserMail sends a mail to the user
@@ -86,7 +88,8 @@ func sendUserMail(language string, u *user_model.User, tpl base.TplName, code, s
 		return
 	}
 
-	msg := NewMessage(u.Email, subject, content.String())
+	MailService := setting.Next()
+	msg := NewMessage(u.Email, subject, content.String(), MailService)
 	msg.Info = fmt.Sprintf("UID: %d, %s", u.ID, info)
 
 	SendAsync(msg)
@@ -137,7 +140,8 @@ func SendActivateEmailMail(u *user_model.User, email *user_model.EmailAddress) {
 		return
 	}
 
-	msg := NewMessage(email.Email, locale.Tr("mail.activate_email"), content.String())
+	MailService := setting.Next()
+	msg := NewMessage(email.Email, locale.Tr("mail.activate_email"), content.String(), MailService)
 	msg.Info = fmt.Sprintf("UID: %d, activate email", u.ID)
 
 	SendAsync(msg)
@@ -168,7 +172,8 @@ func SendRegisterNotifyMail(u *user_model.User) {
 		return
 	}
 
-	msg := NewMessage(u.Email, locale.Tr("mail.register_notify"), content.String())
+	MailService := setting.Next()
+	msg := NewMessage(u.Email, locale.Tr("mail.register_notify"), content.String(), MailService)
 	msg.Info = fmt.Sprintf("UID: %d, registration notify", u.ID)
 
 	SendAsync(msg)
@@ -202,7 +207,8 @@ func SendCollaboratorMail(u, doer *user_model.User, repo *repo_model.Repository)
 		return
 	}
 
-	msg := NewMessage(u.Email, subject, content.String())
+	MailService := setting.Next()
+	msg := NewMessage(u.Email, subject, content.String(), MailService)
 	msg.Info = fmt.Sprintf("UID: %d, add collaborator", u.ID)
 
 	SendAsync(msg)
@@ -320,9 +326,10 @@ func composeIssueCommentMessages(ctx *mailCommentContext, lang string, recipient
 		return nil, err
 	}
 
+	MailService := setting.Next()
 	msgs := make([]*Message, 0, len(recipients))
 	for _, recipient := range recipients {
-		msg := NewMessageFrom(recipient.Email, ctx.Doer.DisplayName(), setting.MailService.FromEmail, subject, mailBody.String())
+		msg := NewMessageFrom(recipient.Email, ctx.Doer.DisplayName(), MailService.FromEmail, subject, mailBody.String(), MailService)
 		msg.Info = fmt.Sprintf("Subject: %s, %s", subject, info)
 
 		msg.SetHeader("Message-ID", msgID)

@@ -85,11 +85,12 @@ func mailNewRelease(ctx context.Context, lang string, tos []string, rel *repo_mo
 		return
 	}
 
+	MailService := setting.Next()
 	msgs := make([]*Message, 0, len(tos))
 	publisherName := rel.Publisher.DisplayName()
 	relURL := "<" + rel.HTMLURL() + ">"
 	for _, to := range tos {
-		msg := NewMessageFrom(to, publisherName, setting.MailService.FromEmail, subject, mailBody.String())
+		msg := NewMessageFrom(to, publisherName, MailService.FromEmail, subject, mailBody.String(), MailService)
 		msg.Info = subject
 		msg.SetHeader("Message-ID", relURL)
 		msgs = append(msgs, msg)

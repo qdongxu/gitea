@@ -80,8 +80,9 @@ func SendEmail(ctx *context.PrivateContext) {
 }
 
 func sendEmail(ctx *context.PrivateContext, subject, message string, to []string) {
+	MailService := setting.Next()
 	for _, email := range to {
-		msg := mailer.NewMessage(email, subject, message)
+		msg := mailer.NewMessage(email, subject, message, MailService)
 		mailer.SendAsync(msg)
 	}
 
