@@ -22,6 +22,7 @@ import (
 	"code.gitea.io/gitea/modules/graceful"
 	"code.gitea.io/gitea/modules/log"
 	"code.gitea.io/gitea/modules/process"
+	proxy2 "code.gitea.io/gitea/modules/proxy"
 	"code.gitea.io/gitea/modules/queue"
 	"code.gitea.io/gitea/modules/setting"
 	"code.gitea.io/gitea/modules/templates"
@@ -198,7 +199,7 @@ func (s *smtpSender) Send(from string, to []string, msg io.WriterTo) error {
 		address = net.JoinHostPort(opts.SMTPAddr, opts.SMTPPort)
 	}
 
-	conn, err := proxy.Dial(context.Background(), network, address)
+	conn, err := proxy2.SMTPConn(network, address)
 	if err != nil {
 		return fmt.Errorf("failed to establish network connection to SMTP server: %w", err)
 	}
