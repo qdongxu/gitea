@@ -29,7 +29,6 @@ import (
 
 	ntlmssp "github.com/Azure/go-ntlmssp"
 	"github.com/jaytaylor/html2text"
-	"golang.org/x/net/proxy"
 	"gopkg.in/gomail.v2"
 )
 
